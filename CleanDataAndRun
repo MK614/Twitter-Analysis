@@ -1,0 +1,87 @@
+#MachineLearningTest
+
+install.packages("xgboost")
+install.packages("tm")
+install.packages("gbm")
+install.packages("caret")
+install.packages("randomForest")
+
+library(tm)
+library(dplyr)
+library(xgboost)
+library(gbm)
+library(caret)
+library(randomForest)
+library(tidytext)
+library(stringr)
+options(stringsAsFactors = FALSE)
+
+ARSBHA_condensed <- ARSBHA.df[1:10,]
+PredData<-ARSBHA_condensed
+
+#Create and clean corpus
+#clean corpus function
+clean_text <- function(PredData) {
+  
+TestDataCorpus<-Corpus(VectorSource(PredData$text)) # might need = sign here instead
+TestDataCorpus<-tm_map(TestDataCorpus, content_transformer(tolower))
+TestDataCorpus<-tm_map(TestDataCorpus, removePunctuation)
+TestDataCorpus<-tm_map(TestDataCorpus, removeWords, stopwords_complete)
+TestDataCorpus<-tm_map(TestDataCorpus, stemDocument)
+TestDataCorpus<-tm_map(TestDataCorpus, removeWords, stopwords_complete)
+TestDataCorpus<-tm_map(TestDataCorpus, removeNumbers)
+TestDataCorpus<-tm_map(TestDataCorpus, removeWords, stopwords("english"))
+return(TestDataCorpus)
+}
+
+TestDataCorpus<-clean_text(PredData)
+
+#create dtm as dataframe
+dtm <- function(TestDataCorpus){
+dtmPrediction<-DocumentTermMatrix(TestDataCorpus)
+dtmPrediction.df<-as.data.frame(as.matrix(dtmPrediction)) #turn into dataframe
+return (dtmPrediction.df)
+}
+
+dtmPrediction.df<-dtm(TestDataCorpus)
+
+#new dtm needs to match dtmTraining.df
+#same columns and same order for both data 
+#matrix_columns_same <- function(old,new)
+
+dtmPredictionOrdered.df<-matrix(0, nrow = nrow(dtmPrediction.df), ncol = ncol(dtmTraining.df))
+rownames(dtmPredictionOrdered.df) <- rownames(dtmPrediction.df)
+colnames(dtmPredictionOrdered.df) <- colnames(dtmTraining.df)
+
+matrix_columns_same <- function(dtmTraining.df,dtmPrediction.df){
+result_matrix<-matrix(0, nrow = nrow(dtmPrediction.df), ncol = ncol(dtmTraining.df))
+rownames(result_matrix) <- rownames(dtmPrediction.df)
+colnames(result_matrix) <- colnames(dtmTraining.df)
+for (row in 1:nrow(dtmPrediction.df)) {
+  for(col in 1:ncol(dtmPrediction.df)){
+    skip_to_next <- FALSE
+    tryCatch(result_matrix[,colnames(dtmPrediction.df[col])], error = function(e) {skip_to_next <<- TRUE
+    })
+    if(skip_to_next) {next()}
+      else {
+        if(dtmPrediction.df[row,col] > 0)
+        {
+        result_matrix[row,colnames(dtmPrediction.df)[col]]<-dtmPrediction.df[row,col]
+        }
+      }
+  }
+}
+return(result_matrix)
+}
+
+dtmPredictionOrdered.df<-matrix_columns_same(dtmTraining.df, dtmPrediction.df)
+dtmPredictionOrdered <- as.matrix(dtmPredictionOrdered.df)
+predGame <- predict(Model_Sentiment, newdata=dtmPredictionOrdered, type = "response")
+
+predicted_class <- matrix(predGame,
+                          nrow = 3,
+                          ncol = length(predGame) / 3) %>%
+                          t() %>%
+                          data.frame() %>%
+                          mutate(max_prob = max.col(., "last"))-2 #subtract 2 here
+
